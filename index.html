@@ -51,11 +51,12 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
 
 .letter-filters{background:#fff;border-radius:12px;padding:12px 15px;margin-bottom:14px;box-shadow:0 2px 8px #00000012}
 .filter-title{font-size:12px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:6px}
-.letter-filter-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.letter-filter-row:last-child{margin-bottom:0}
-.letter-position{min-width:82px;font-size:12px;font-weight:bold;color:#6b7280}
-.letter-select{min-width:120px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#1f2937;font-size:13px}
-@media(max-width:430px){.letter-filter-row{display:grid;grid-template-columns:82px 1fr}.letter-select{width:100%}}
+.letters{display:flex;flex-wrap:wrap;gap:5px}
+.letter-btn{width:32px;height:32px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#1f2937;font-size:13px;font-weight:600;cursor:pointer}
+.letter-btn:hover{background:#f3f4f6}
+.letter-btn.active{background:#111827;color:#fff;border-color:#111827}
+.letter-btn.all{width:auto;padding:0 10px}
+@media(max-width:430px){.letter-btn{width:31px;height:31px}}
 @media(max-width:750px){
  .header-inner{align-items:flex-start}
  .header-date{flex-direction:column;align-items:flex-end}
@@ -95,20 +96,16 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
 </section>
 <section class="letter-filters">
  <div class="filter-title">Cognome</div>
- <div class="letter-filter-row"><span class="letter-position">1ª lettera</span><select class="letter-select" id="surname1"></select></div>
- <div class="letter-filter-row"><span class="letter-position">2ª lettera</span><select class="letter-select" id="surname2"></select></div>
- <div class="letter-filter-row"><span class="letter-position">3ª lettera</span><select class="letter-select" id="surname3"></select></div>
+ <div class="letters" id="surnameLetters"></div>
  <div class="filter-title" style="margin-top:12px">Nome</div>
- <div class="letter-filter-row"><span class="letter-position">1ª lettera</span><select class="letter-select" id="name1"></select></div>
- <div class="letter-filter-row"><span class="letter-position">2ª lettera</span><select class="letter-select" id="name2"></select></div>
- <div class="letter-filter-row"><span class="letter-position">3ª lettera</span><select class="letter-select" id="name3"></select></div>
+ <div class="letters" id="nameLetters"></div>
 </section>
 
 <section id="peopleList"></section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-let people=[],openDetails={},surnameFilter=["","",""],nameFilter=["","",""];
+let people=[],openDetails={},surnameFilter=[],nameFilter=[];
 const SUPABASE_URL="https://onxcpwqsupocoegqdsao.supabase.co";
 const SUPABASE_KEY="sb_publishable_rnU8r1juOz0WyeA4YyJz9g_iAaFkHZU";
 const SUPABASE_TABLE="presenze";
@@ -123,42 +120,81 @@ document.getElementById("resetGeneral").addEventListener("click",resetGeneral);
 loadPersonnel();
 function storageKey(){return "presenze_v3_"+dateInput.value}
 async function resetGeneral(){
- if(!people.length)return;
- if(!confirm("Vuoi azzerare tutte le presenze per la data selezionata?"))return;
+ if(!people.length){fileInput.value="";return;}
+ if(!confirm("Vuoi cancellare il personale caricato e pulire la lista per caricare un nuovo file Excel?"))return;
  try{
-   const res=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(dateInput.value)}`,{method:"DELETE"});
+   setSyncStatus("Pulizia personale in corso…");
+
+   // Cancella il roster attualmente presente nel database.
+   // Il file Excel selezionato nel browser non viene conservato:
+   // quello che dobbiamo pulire è il roster sincronizzato in Supabase.
+   const res=await supabasePersonnelFetch("?person_key=not.is.null",{method:"DELETE",headers:{"Prefer":"return=minimal"}});
    if(!res.ok) throw new Error(await res.text());
+
+   // Pulisce anche le presenze della data visualizzata, così il nuovo Excel
+   // parte da una situazione completamente neutra per la giornata corrente.
+   const attendanceRes=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(dateInput.value)}`,{method:"DELETE"});
+   if(!attendanceRes.ok) throw new Error(await attendanceRes.text());
+
    localStorage.removeItem(storageKey());
-   people.forEach(p=>p.status="neutro");
+   people=[];
+   openDetails={};
+   surnameFilter=[];
+   nameFilter=[];
+   renderFilters();
    render();
- }catch(err){console.error(err);alert("Errore nel reset delle presenze sul database.");}
+   fileInput.value="";
+   setSyncStatus("Database: pronto per un nuovo file Excel");
+ }catch(err){
+   console.error(err);
+   alert("Errore nella pulizia del personale sul database.\n\n"+err.message);
+ }
 }
 
 function createLetterFilters(){
- const letters=["",..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
- ["surname1","surname2","surname3","name1","name2","name3"].forEach(id=>{
-   const select=document.getElementById(id);
-   select.innerHTML="";
+ const letters=[..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+ const make=(containerId,type)=>{
+   const container=document.getElementById(containerId);
+   container.innerHTML="";
+   const all=document.createElement("button");
+   all.type="button"; all.className="letter-btn all active"; all.textContent="Tutte";
+   all.addEventListener("click",()=>{
+     if(type==="surname") surnameFilter=[]; else nameFilter=[];
+     renderFilters(); render();
+   });
+   container.appendChild(all);
    letters.forEach(letter=>{
-     const opt=document.createElement("option");
-     opt.value=letter;
-     opt.textContent=letter || "Tutte";
-     select.appendChild(opt);
+     const b=document.createElement("button");
+     b.type="button"; b.className="letter-btn"; b.textContent=letter;
+     b.addEventListener("click",()=>{
+       const arr=type==="surname"?surnameFilter:nameFilter;
+       const pos=arr.indexOf(letter);
+       if(pos>=0) arr.splice(pos,1); else arr.push(letter);
+       arr.sort();
+       renderFilters(); render();
+     });
+     container.appendChild(b);
    });
-   select.addEventListener("change",()=>{
-     surnameFilter=[document.getElementById("surname1").value,document.getElementById("surname2").value,document.getElementById("surname3").value];
-     nameFilter=[document.getElementById("name1").value,document.getElementById("name2").value,document.getElementById("name3").value];
-     render();
-   });
- });
- surnameFilter=["","",""];
- nameFilter=["","",""];
+ };
+ make("surnameLetters","surname");
+ make("nameLetters","name");
+ surnameFilter=[]; nameFilter=[];
+ renderFilters();
 }
 
 function renderFilters(){
- const ids=["surname1","surname2","surname3","name1","name2","name3"];
- const values=[...surnameFilter,...nameFilter];
- ids.forEach((id,i)=>{document.getElementById(id).value=values[i]||"";});
+ [
+  ["surnameLetters",surnameFilter],
+  ["nameLetters",nameFilter]
+ ].forEach(([id,selected])=>{
+   const box=document.getElementById(id);
+   if(!box)return;
+   const buttons=[...box.querySelectorAll(".letter-btn")];
+   buttons.forEach(b=>{
+     const letter=b.textContent;
+     b.classList.toggle("active",letter==="Tutte" ? selected.length===0 : selected.includes(letter));
+   });
+ });
 }
 
 async function handleFile(e){
@@ -180,7 +216,7 @@ async function handleFile(e){
    if(!imported.length){throw new Error("Nessun nominativo trovato nel file.");}
    await replacePersonnel(imported);
    people=imported.map(x=>({id:x.person_key,surname:x.cognome,name:x.nome,agency:x.agenzia,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro"}));
-   surnameFilter=["","",""]; nameFilter=["","",""]; renderFilters();
+   surnameFilter=[]; nameFilter=[]; renderFilters();
    setSyncStatus("Database: personale aggiornato");
    await loadStatuses();
   }catch(err){console.error(err);setSyncStatus("Errore database");alert("Errore nel caricamento del personale sul database.\n\n"+err.message);}
@@ -289,10 +325,10 @@ function render(){
  document.getElementById("presentiCount").textContent=pres;
  if(!people.length){list.innerHTML="<div class=\"person\"><div style=\"text-align:center;padding:20px;color:#6b7280\">Nessun personale caricato. Usa ↑ Carica file.</div></div>";return;}
  const visiblePeople=people.map((p,i)=>({p,i})).filter(({p})=>{
-  const surnameLetters=getLetters(p.surname);
-  const nameLetters=getLetters(p.name);
-  const surnameOk=surnameFilter.every((f,idx)=>!f || surnameLetters[idx]===f);
-  const nameOk=nameFilter.every((f,idx)=>!f || nameLetters[idx]===f);
+  const surnameInitial=getInitial(p.surname);
+  const nameInitial=getInitial(p.name);
+  const surnameOk=surnameFilter.length===0 || surnameFilter.includes(surnameInitial);
+  const nameOk=nameFilter.length===0 || nameFilter.includes(nameInitial);
   return surnameOk && nameOk;
  });
 
@@ -309,12 +345,10 @@ function render(){
   row.appendChild(details);list.appendChild(row);
  });
 }
-function getLetters(value){
- const s=String(value ?? "").trim();
- if(!s) return ["","",""];
- const normalized=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
- const letters=(normalized.match(/[A-Z]/g)||[]).slice(0,3);
- return [letters[0]||"",letters[1]||"",letters[2]||""];
+function getInitial(value){
+ const s=String(value ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+ const m=s.match(/[A-Z]/);
+ return m?m[0]:"";
 }
 
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
