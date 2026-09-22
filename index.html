@@ -51,9 +51,11 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
 
 .letter-filters{background:#fff;border-radius:12px;padding:12px 15px;margin-bottom:14px;box-shadow:0 2px 8px #00000012}
 .filter-title{font-size:12px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:6px}
-.letters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
-.letter-btn{min-width:31px;padding:7px 8px;background:#e5e7eb;color:#374151;border-radius:6px;font-size:12px}
-.letter-btn.active{background:#1f2937;color:#fff}
+.letter-filter-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.letter-filter-row:last-child{margin-bottom:0}
+.letter-position{min-width:82px;font-size:12px;font-weight:bold;color:#6b7280}
+.letter-select{min-width:120px;padding:7px 9px;border:1px solid #d1d5db;border-radius:7px;background:#fff;color:#1f2937;font-size:13px}
+@media(max-width:430px){.letter-filter-row{display:grid;grid-template-columns:82px 1fr}.letter-select{width:100%}}
 @media(max-width:750px){
  .header-inner{align-items:flex-start}
  .header-date{flex-direction:column;align-items:flex-end}
@@ -93,16 +95,20 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
 </section>
 <section class="letter-filters">
  <div class="filter-title">Cognome</div>
- <div class="letters" id="surnameLetters"></div>
- <div class="filter-title">Nome</div>
- <div class="letters" id="nameLetters"></div>
+ <div class="letter-filter-row"><span class="letter-position">1ª lettera</span><select class="letter-select" id="surname1"></select></div>
+ <div class="letter-filter-row"><span class="letter-position">2ª lettera</span><select class="letter-select" id="surname2"></select></div>
+ <div class="letter-filter-row"><span class="letter-position">3ª lettera</span><select class="letter-select" id="surname3"></select></div>
+ <div class="filter-title" style="margin-top:12px">Nome</div>
+ <div class="letter-filter-row"><span class="letter-position">1ª lettera</span><select class="letter-select" id="name1"></select></div>
+ <div class="letter-filter-row"><span class="letter-position">2ª lettera</span><select class="letter-select" id="name2"></select></div>
+ <div class="letter-filter-row"><span class="letter-position">3ª lettera</span><select class="letter-select" id="name3"></select></div>
 </section>
 
 <section id="peopleList"></section>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
-let people=[],openDetails={},surnameFilter="ALL",nameFilter="ALL";
+let people=[],openDetails={},surnameFilter=["","",""],nameFilter=["","",""];
 const SUPABASE_URL="https://onxcpwqsupocoegqdsao.supabase.co";
 const SUPABASE_KEY="sb_publishable_rnU8r1juOz0WyeA4YyJz9g_iAaFkHZU";
 const SUPABASE_TABLE="presenze";
@@ -129,35 +135,30 @@ async function resetGeneral(){
 }
 
 function createLetterFilters(){
- const letters=["ALL",..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
- const surnameBox=document.getElementById("surnameLetters");
- const nameBox=document.getElementById("nameLetters");
- surnameBox.innerHTML="";
- nameBox.innerHTML="";
- letters.forEach(letter=>{
-   const b1=document.createElement("button");
-   b1.className="letter-btn"+(surnameFilter===letter?" active":"");
-   b1.textContent=letter==="ALL"?"Tutti":letter;
-   b1.onclick=()=>{surnameFilter=letter; renderFilters(); render();};
-   surnameBox.appendChild(b1);
-
-   const b2=document.createElement("button");
-   b2.className="letter-btn"+(nameFilter===letter?" active":"");
-   b2.textContent=letter==="ALL"?"Tutti":letter;
-   b2.onclick=()=>{nameFilter=letter; renderFilters(); render();};
-   nameBox.appendChild(b2);
+ const letters=["",..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+ ["surname1","surname2","surname3","name1","name2","name3"].forEach(id=>{
+   const select=document.getElementById(id);
+   select.innerHTML="";
+   letters.forEach(letter=>{
+     const opt=document.createElement("option");
+     opt.value=letter;
+     opt.textContent=letter || "Tutte";
+     select.appendChild(opt);
+   });
+   select.addEventListener("change",()=>{
+     surnameFilter=[document.getElementById("surname1").value,document.getElementById("surname2").value,document.getElementById("surname3").value];
+     nameFilter=[document.getElementById("name1").value,document.getElementById("name2").value,document.getElementById("name3").value];
+     render();
+   });
  });
+ surnameFilter=["","",""];
+ nameFilter=["","",""];
 }
 
 function renderFilters(){
- document.querySelectorAll("#surnameLetters .letter-btn").forEach((b,i)=>{
-   const val=i===0?"ALL":String.fromCharCode(64+i);
-   b.classList.toggle("active",surnameFilter===val);
- });
- document.querySelectorAll("#nameLetters .letter-btn").forEach((b,i)=>{
-   const val=i===0?"ALL":String.fromCharCode(64+i);
-   b.classList.toggle("active",nameFilter===val);
- });
+ const ids=["surname1","surname2","surname3","name1","name2","name3"];
+ const values=[...surnameFilter,...nameFilter];
+ ids.forEach((id,i)=>{document.getElementById(id).value=values[i]||"";});
 }
 
 async function handleFile(e){
@@ -179,7 +180,7 @@ async function handleFile(e){
    if(!imported.length){throw new Error("Nessun nominativo trovato nel file.");}
    await replacePersonnel(imported);
    people=imported.map(x=>({id:x.person_key,surname:x.cognome,name:x.nome,agency:x.agenzia,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro"}));
-   surnameFilter="ALL"; nameFilter="ALL"; renderFilters();
+   surnameFilter=["","",""]; nameFilter=["","",""]; renderFilters();
    setSyncStatus("Database: personale aggiornato");
    await loadStatuses();
   }catch(err){console.error(err);setSyncStatus("Errore database");alert("Errore nel caricamento del personale sul database.\n\n"+err.message);}
@@ -288,8 +289,10 @@ function render(){
  document.getElementById("presentiCount").textContent=pres;
  if(!people.length){list.innerHTML="<div class=\"person\"><div style=\"text-align:center;padding:20px;color:#6b7280\">Nessun personale caricato. Usa ↑ Carica file.</div></div>";return;}
  const visiblePeople=people.map((p,i)=>({p,i})).filter(({p})=>{
-  const surnameOk=surnameFilter==="ALL" || firstLetter(p.surname)===surnameFilter;
-  const nameOk=nameFilter==="ALL" || firstLetter(p.name)===nameFilter;
+  const surnameLetters=getLetters(p.surname);
+  const nameLetters=getLetters(p.name);
+  const surnameOk=surnameFilter.every((f,idx)=>!f || surnameLetters[idx]===f);
+  const nameOk=nameFilter.every((f,idx)=>!f || nameLetters[idx]===f);
   return surnameOk && nameOk;
  });
 
@@ -306,12 +309,12 @@ function render(){
   row.appendChild(details);list.appendChild(row);
  });
 }
-function firstLetter(value){
+function getLetters(value){
  const s=String(value ?? "").trim();
- if(!s) return "";
- const normalized=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
- const match=normalized.match(/[A-Za-z]/);
- return match ? match[0].toUpperCase() : "";
+ if(!s) return ["","",""];
+ const normalized=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
+ const letters=(normalized.match(/[A-Z]/g)||[]).slice(0,3);
+ return [letters[0]||"",letters[1]||"",letters[2]||""];
 }
 
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
