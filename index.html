@@ -106,6 +106,7 @@ let people=[],openDetails={},surnameFilter="ALL",nameFilter="ALL";
 const SUPABASE_URL="https://onxcpwqsupocoegqdsao.supabase.co";
 const SUPABASE_KEY="sb_publishable_rnU8r1juOz0WyeA4YyJz9g_iAaFkHZU";
 const SUPABASE_TABLE="presenze";
+const SUPABASE_PERSONNEL_TABLE="personale";
 let syncBusy=false;
 const fileInput=document.getElementById("excelFile"),dateInput=document.getElementById("attendanceDate"),list=document.getElementById("peopleList");
 dateInput.value=new Date().toISOString().slice(0,10);
@@ -113,6 +114,7 @@ createLetterFilters();
 fileInput.addEventListener("change",handleFile);
 dateInput.addEventListener("change",loadStatuses);
 document.getElementById("resetGeneral").addEventListener("click",resetGeneral);
+loadPersonnel();
 function storageKey(){return "presenze_v3_"+dateInput.value}
 async function resetGeneral(){
  if(!people.length)return;
@@ -158,27 +160,64 @@ function renderFilters(){
  });
 }
 
-function handleFile(e){
+async function handleFile(e){
  const file=e.target.files[0];if(!file)return;
  const reader=new FileReader();
- reader.onload=function(ev){
+ reader.onload=async function(ev){
   try{
+   setSyncStatus("Importazione personale in corso…");
    const wb=XLSX.read(new Uint8Array(ev.target.result),{type:"array"}),ws=wb.Sheets[wb.SheetNames[0]];
    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});if(!rows.length)return;
    const h=rows[0].map(v=>String(v).trim().toLowerCase());
    const find=(names,fallback)=>{const i=h.findIndex(x=>names.includes(x));return i>=0?i:fallback};
    const cAgency=find(["agenzia"],0),cSurname=find(["cognome"],1),cName=find(["nome"],2),cArea=find(["area"],3),cStart=find(["start time","start"],4),cEnd=find(["end time","end"],5);
-   people=rows.slice(1).map(r=>{
+   const imported=rows.slice(1).map(r=>{
     const agency=String(r[cAgency]??"").trim(),surname=String(r[cSurname]??"").trim(),name=String(r[cName]??"").trim();
     if(!surname&&!name)return null;
-    return {id:(surname+"|"+name).toLowerCase().trim(),surname,name,agency,type:agency.toLowerCase().replace(/\s+/g,"")==="fedex"?"FedEx":"Interinale",area:String(r[cArea]??"").trim(),start:formatTime(r[cStart]),end:formatTime(r[cEnd]),status:"neutro"};
+    return {person_key:(surname+"|"+name).toLowerCase().trim(),surname,name,agency,type:agency.toLowerCase().replace(/\s+/g,"")==="fedex"?"FedEx":"Interinale",area:String(r[cArea]??"").trim(),start_time:formatTime(r[cStart]),end_time:formatTime(r[cEnd]),active:true,updated_at:new Date().toISOString()};
    }).filter(Boolean);
+   if(!imported.length){throw new Error("Nessun nominativo trovato nel file.");}
+   await replacePersonnel(imported);
+   people=imported.map(x=>({id:x.person_key,surname:x.surname,name:x.name,agency:x.agency,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro"}));
    surnameFilter="ALL"; nameFilter="ALL"; renderFilters();
-   loadStatuses();
-  }catch(err){console.error(err);alert("Errore nella lettura del file Excel.")}
+   setSyncStatus("Database: personale aggiornato");
+   await loadStatuses();
+  }catch(err){console.error(err);setSyncStatus("Errore database");alert("Errore nel caricamento del personale sul database.\n\n"+err.message);}
+  fileInput.value="";
  };
  reader.readAsArrayBuffer(file);
 }
+
+async function loadPersonnel(){
+ try{
+  setSyncStatus("Caricamento personale…");
+  const res=await supabasePersonnelFetch("?active=eq.true&select=person_key,surname,name,agency,type,area,start_time,end_time&order=surname.asc,name.asc");
+  if(!res.ok) throw new Error(await res.text());
+  const rows=await res.json();
+  people=rows.map(x=>({id:x.person_key,surname:x.surname||"",name:x.name||"",agency:x.agency||"",type:x.type||"Interinale",area:x.area||"",start:x.start_time||"—",end:x.end_time||"—",status:"neutro"}));
+  setSyncStatus(people.length?`Database: ${people.length} persone caricate`:`Database: nessun personale caricato`);
+  await loadStatuses();
+ }catch(err){
+  console.error(err);people=[];render();setSyncStatus("Errore caricamento personale");
+  alert("Non riesco a caricare il personale dal database. Controlla la tabella 'personale' e le policy RLS.");
+ }
+}
+
+async function replacePersonnel(rows){
+ // Mark the current roster inactive, then activate the new roster.
+ const off=await supabasePersonnelFetch("?person_key=not.is.null",{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({active:false,updated_at:new Date().toISOString()})});
+ if(!off.ok) throw new Error(await off.text());
+ const res=await supabasePersonnelFetch("?on_conflict=person_key",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
+ if(!res.ok) throw new Error(await res.text());
+}
+
+function supabasePersonnelFetch(path,options={}){
+ const headers=Object.assign({"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Content-Type":"application/json"},options.headers||{});
+ return fetch(SUPABASE_URL+"/rest/v1/"+SUPABASE_PERSONNEL_TABLE+path,Object.assign({},options,{headers}));
+}
+
+function setSyncStatus(text){document.getElementById("syncStatus").textContent=text;}
+
 function formatTime(v){
  if(v===""||v==null)return "—";
  if(typeof v==="number"){const t=Math.round(v*1440);return String(Math.floor(t/60)%24).padStart(2,"0")+":"+String(t%60).padStart(2,"0")}
@@ -213,6 +252,7 @@ async function setStatus(i,status){
  try{
    if(next==="neutro") await deleteStatus(p.id);
    else await upsertStatus(p.id,next);
+   setSyncStatus("Database: presenza salvata");
  }catch(err){
    console.error(err);
    p.status=previous;
@@ -242,6 +282,7 @@ function render(){
  document.getElementById("fedexCount").textContent=fp;
  document.getElementById("interinaleCount").textContent=ip;
  document.getElementById("presentiCount").textContent=pres;
+ if(!people.length){list.innerHTML="<div class=\"person\"><div style=\"text-align:center;padding:20px;color:#6b7280\">Nessun personale caricato. Usa ↑ Carica file.</div></div>";return;}
  const visiblePeople=people.map((p,i)=>({p,i})).filter(({p})=>{
   const surnameOk=surnameFilter==="ALL" || firstLetter(p.surname)===surnameFilter;
   const nameOk=nameFilter==="ALL" || firstLetter(p.name)===nameFilter;
