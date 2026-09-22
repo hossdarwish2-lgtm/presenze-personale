@@ -205,9 +205,13 @@ async function loadPersonnel(){
 
 async function replacePersonnel(rows){
  // Mark the current roster inactive, then activate the new roster.
+ // The same person can appear more than once in the Excel file;
+ // keep only the last row for each person_key so the UPSERT never
+ // sends duplicate keys in the same command.
+ const uniqueRows = Array.from(new Map(rows.map(r => [r.person_key, r])).values());
  const off=await supabasePersonnelFetch("?person_key=not.is.null",{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({active:false,updated_at:new Date().toISOString()})});
  if(!off.ok) throw new Error(await off.text());
- const res=await supabasePersonnelFetch("?on_conflict=person_key",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(rows)});
+ const res=await supabasePersonnelFetch("?on_conflict=person_key",{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(uniqueRows)});
  if(!res.ok) throw new Error(await res.text());
 }
 
