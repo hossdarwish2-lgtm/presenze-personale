@@ -174,11 +174,11 @@ async function handleFile(e){
    const imported=rows.slice(1).map(r=>{
     const agency=String(r[cAgency]??"").trim(),surname=String(r[cSurname]??"").trim(),name=String(r[cName]??"").trim();
     if(!surname&&!name)return null;
-    return {person_key:(surname+"|"+name).toLowerCase().trim(),surname,name,agency,type:agency.toLowerCase().replace(/\s+/g,"")==="fedex"?"FedEx":"Interinale",area:String(r[cArea]??"").trim(),start_time:formatTime(r[cStart]),end_time:formatTime(r[cEnd]),active:true,updated_at:new Date().toISOString()};
+    return {person_key:(surname+"|"+name).toLowerCase().trim(),cognome:surname,nome:name,agenzia:agency,type:agency.toLowerCase().replace(/\s+/g,"")==="fedex"?"FedEx":"Interinale",area:String(r[cArea]??"").trim(),start_time:formatTime(r[cStart]),end_time:formatTime(r[cEnd]),active:true,updated_at:new Date().toISOString()};
    }).filter(Boolean);
    if(!imported.length){throw new Error("Nessun nominativo trovato nel file.");}
    await replacePersonnel(imported);
-   people=imported.map(x=>({id:x.person_key,surname:x.surname,name:x.name,agency:x.agency,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro"}));
+   people=imported.map(x=>({id:x.person_key,surname:x.cognome,name:x.nome,agency:x.agenzia,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro"}));
    surnameFilter="ALL"; nameFilter="ALL"; renderFilters();
    setSyncStatus("Database: personale aggiornato");
    await loadStatuses();
@@ -191,10 +191,10 @@ async function handleFile(e){
 async function loadPersonnel(){
  try{
   setSyncStatus("Caricamento personale…");
-  const res=await supabasePersonnelFetch("?active=eq.true&select=person_key,surname,name,agency,type,area,start_time,end_time&order=surname.asc,name.asc");
+  const res=await supabasePersonnelFetch("?active=eq.true&select=person_key,cognome,nome,agenzia,type,area,start_time,end_time&order=cognome.asc,nome.asc");
   if(!res.ok) throw new Error(await res.text());
   const rows=await res.json();
-  people=rows.map(x=>({id:x.person_key,surname:x.surname||"",name:x.name||"",agency:x.agency||"",type:x.type||"Interinale",area:x.area||"",start:x.start_time||"—",end:x.end_time||"—",status:"neutro"}));
+  people=rows.map(x=>({id:x.person_key,surname:x.cognome||"",name:x.nome||"",agency:x.agenzia||"",type:x.type||"Interinale",area:x.area||"",start:x.start_time||"—",end:x.end_time||"—",status:"neutro"}));
   setSyncStatus(people.length?`Database: ${people.length} persone caricate`:`Database: nessun personale caricato`);
   await loadStatuses();
  }catch(err){
