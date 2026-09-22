@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Presenze Personale</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#1f2937}
+header{background:#1f2937;color:#fff;padding:12px 16px}
+.header-inner{max-width:1050px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px}
+header h1{order:2;margin:0;font-size:22px}
+.header-upload{display:flex;order:2;align-items:center;gap:6px;background:#fff;color:#1f2937;padding:7px 10px;border-radius:7px;font-size:13px;font-weight:bold;cursor:pointer}
+.header-upload .upload-arrow{font-size:19px;line-height:1}
+.header-upload input{display:none}
+.header-reset{order:1;background:#fff;color:#1f2937;border:0;padding:7px 10px;border-radius:7px;font-size:19px;line-height:1;cursor:pointer}
+.header-date{display:flex;order:3;align-items:center;gap:7px;font-size:12px;font-weight:bold}
+.header-date input{padding:7px 8px;border:0;border-radius:7px;background:#fff;color:#1f2937}
+main{max-width:1050px;margin:18px auto;padding:0 12px}
+.toolbar,.counterbar{background:#fff;border-radius:12px;padding:15px;margin-bottom:14px;box-shadow:0 2px 8px #00000012}
+.toolbar-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.date-row{justify-content:space-between}
+input[type=file]{max-width:100%}
+input[type=date]{padding:8px;border:1px solid #d1d5db;border-radius:7px}
+.reset-general{background:#dc2626;color:#fff;padding:8px 13px}
+.reset-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;font-size:24px;line-height:1;font-weight:700}
+.counterbar{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.counter{border-radius:10px;padding:13px;text-align:center;background:#f3f4f6}
+.counter strong{display:block;font-size:24px;margin-top:4px}
+.counter small{font-size:12px}
+.counter.fedex{background:#e0e7ff}
+.counter.interinale{background:#fef3c7}
+.counter.presenti{background:#dcfce7}
+.person{background:#fff;border-radius:12px;margin-bottom:9px;padding:11px;box-shadow:0 2px 6px #00000010}
+.mainrow{display:flex;align-items:center;gap:8px}
+.name{flex:1;font-weight:bold;font-size:16px;cursor:pointer}
+.name:hover{text-decoration:underline}
+.type{width:92px;text-align:center;padding:6px;border-radius:6px;font-size:11px;font-weight:bold}
+.type.fedex{background:#e0e7ff;color:#3730a3}
+.type.interinale{background:#fef3c7;color:#92400e}
+.buttons{display:flex;gap:7px}
+button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:pointer}
+.present{background:#e5e7eb;color:#374151}
+.present.active{background:#22c55e;color:#fff}
+.absent{background:#e5e7eb;color:#374151}
+.absent.active{background:#eab308;color:#111}
+.details{display:none;margin-top:10px;padding:11px;border-top:1px solid #e5e7eb;background:#f9fafb;border-radius:8px;font-size:14px}
+.details.open{display:block}
+.detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.detail-item strong{display:block;font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:3px}
+
+.letter-filters{background:#fff;border-radius:12px;padding:12px 15px;margin-bottom:14px;box-shadow:0 2px 8px #00000012}
+.filter-title{font-size:12px;font-weight:bold;color:#6b7280;text-transform:uppercase;margin-bottom:6px}
+.letters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.letter-btn{min-width:31px;padding:7px 8px;background:#e5e7eb;color:#374151;border-radius:6px;font-size:12px}
+.letter-btn.active{background:#1f2937;color:#fff}
+@media(max-width:750px){
+ .header-inner{align-items:flex-start}
+ .header-date{flex-direction:column;align-items:flex-end}
+ .counterbar{grid-template-columns:1fr 1fr}
+ .counter.presenti{grid-column:1/-1}
+ .mainrow{flex-wrap:wrap}
+ .name{flex-basis:100%;order:1}
+ .buttons{order:2;width:100%;align-items:center}
+ .buttons button{flex:1}
+ .buttons .type{flex:0 0 auto}
+ .detail-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:430px){.detail-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+ <div class="header-inner">
+  <button class="header-reset" id="resetGeneral" title="Azzera presenze" aria-label="Azzera presenze">↻</button>
+  <label class="header-upload" title="Carica file">
+   <span class="upload-arrow">↑</span><span>Carica file</span>
+   <input type="file" id="excelFile" accept=".xlsx,.xls,.csv">
+  </label>
+  <h1>Presenze Personale</h1>
+  <div class="header-date">
+   <span>DATA</span>
+   <input type="date" id="attendanceDate">
+  </div>
+ </div>
+</header>
+<main>
+<section class="toolbar">
+</section>
+<section class="counterbar">
+ <div class="counter fedex"><small>FEDEX PRESENTI</small><strong id="fedexCount">0</strong></div>
+ <div class="counter interinale"><small>INTERINALI PRESENTI</small><strong id="interinaleCount">0</strong></div>
+ <div class="counter presenti"><small>PRESENTI</small><strong id="presentiCount">0</strong></div>
+</section>
+<section class="letter-filters">
+ <div class="filter-title">Cognome</div>
+ <div class="letters" id="surnameLetters"></div>
+ <div class="filter-title">Nome</div>
+ <div class="letters" id="nameLetters"></div>
+</section>
+
+<section id="peopleList"></section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+let people=[],openDetails={},surnameFilter="ALL",nameFilter="ALL";
+const fileInput=document.getElementById("excelFile"),dateInput=document.getElementById("attendanceDate"),list=document.getElementById("peopleList");
+dateInput.value=new Date().toISOString().slice(0,10);
+createLetterFilters();
+fileInput.addEventListener("change",handleFile);
+dateInput.addEventListener("change",loadStatuses);
+document.getElementById("resetGeneral").addEventListener("click",resetGeneral);
+function storageKey(){return "presenze_v3_"+dateInput.value}
+function resetGeneral(){
+ if(!people.length)return;
+ if(!confirm("Vuoi azzerare tutte le presenze per la data selezionata?"))return;
+ localStorage.removeItem(storageKey());
+ people.forEach(p=>p.status="neutro");
+ render();
+}
+
+function createLetterFilters(){
+ const letters=["ALL",..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+ const surnameBox=document.getElementById("surnameLetters");
+ const nameBox=document.getElementById("nameLetters");
+ surnameBox.innerHTML="";
+ nameBox.innerHTML="";
+ letters.forEach(letter=>{
+   const b1=document.createElement("button");
+   b1.className="letter-btn"+(surnameFilter===letter?" active":"");
+   b1.textContent=letter==="ALL"?"Tutti":letter;
+   b1.onclick=()=>{surnameFilter=letter; renderFilters(); render();};
+   surnameBox.appendChild(b1);
+
+   const b2=document.createElement("button");
+   b2.className="letter-btn"+(nameFilter===letter?" active":"");
+   b2.textContent=letter==="ALL"?"Tutti":letter;
+   b2.onclick=()=>{nameFilter=letter; renderFilters(); render();};
+   nameBox.appendChild(b2);
+ });
+}
+
+function renderFilters(){
+ document.querySelectorAll("#surnameLetters .letter-btn").forEach((b,i)=>{
+   const val=i===0?"ALL":String.fromCharCode(64+i);
+   b.classList.toggle("active",surnameFilter===val);
+ });
+ document.querySelectorAll("#nameLetters .letter-btn").forEach((b,i)=>{
+   const val=i===0?"ALL":String.fromCharCode(64+i);
+   b.classList.toggle("active",nameFilter===val);
+ });
+}
+
+function handleFile(e){
+ const file=e.target.files[0];if(!file)return;
+ const reader=new FileReader();
+ reader.onload=function(ev){
+  try{
+   const wb=XLSX.read(new Uint8Array(ev.target.result),{type:"array"}),ws=wb.Sheets[wb.SheetNames[0]];
+   const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});if(!rows.length)return;
+   const h=rows[0].map(v=>String(v).trim().toLowerCase());
+   const find=(names,fallback)=>{const i=h.findIndex(x=>names.includes(x));return i>=0?i:fallback};
+   const cAgency=find(["agenzia"],0),cSurname=find(["cognome"],1),cName=find(["nome"],2),cArea=find(["area"],3),cStart=find(["start time","start"],4),cEnd=find(["end time","end"],5);
+   people=rows.slice(1).map(r=>{
+    const agency=String(r[cAgency]??"").trim(),surname=String(r[cSurname]??"").trim(),name=String(r[cName]??"").trim();
+    if(!surname&&!name)return null;
+    return {id:(surname+"|"+name).toLowerCase().trim(),surname,name,agency,type:agency.toLowerCase().replace(/\s+/g,"")==="fedex"?"FedEx":"Interinale",area:String(r[cArea]??"").trim(),start:formatTime(r[cStart]),end:formatTime(r[cEnd]),status:"neutro"};
+   }).filter(Boolean);
+   surnameFilter="ALL"; nameFilter="ALL"; renderFilters();
+   loadStatuses();
+  }catch(err){console.error(err);alert("Errore nella lettura del file Excel.")}
+ };
+ reader.readAsArrayBuffer(file);
+}
+function formatTime(v){
+ if(v===""||v==null)return "—";
+ if(typeof v==="number"){const t=Math.round(v*1440);return String(Math.floor(t/60)%24).padStart(2,"0")+":"+String(t%60).padStart(2,"0")}
+ return String(v);
+}
+function loadStatuses(){
+ let saved={};try{saved=JSON.parse(localStorage.getItem(storageKey())||"{}")}catch(e){}
+ people.forEach(p=>p.status=saved[p.id]||"neutro");render();
+}
+function save(){const d={};people.forEach(p=>d[p.id]=p.status);localStorage.setItem(storageKey(),JSON.stringify(d))}
+function setStatus(i,status){people[i].status=people[i].status===status?"neutro":status;save();render()}
+function toggleDetails(i){openDetails[i]=!openDetails[i];render()}
+function render(){
+ list.innerHTML="";let fp=0,ip=0,pres=0;
+ people.forEach(p=>{if(p.status==="presente"){pres++;if(p.type==="FedEx")fp++;else ip++}});
+ document.getElementById("fedexCount").textContent=fp;
+ document.getElementById("interinaleCount").textContent=ip;
+ document.getElementById("presentiCount").textContent=pres;
+ const visiblePeople=people.map((p,i)=>({p,i})).filter(({p})=>{
+  const surnameOk=surnameFilter==="ALL" || firstLetter(p.surname)===surnameFilter;
+  const nameOk=nameFilter==="ALL" || firstLetter(p.name)===nameFilter;
+  return surnameOk && nameOk;
+ });
+
+ visiblePeople.forEach(({p,i})=>{
+  const row=document.createElement("div");row.className="person";
+  const main=document.createElement("div");main.className="mainrow";
+  const name=document.createElement("div");name.className="name";name.textContent=p.surname+" "+p.name;name.onclick=()=>toggleDetails(i);
+  const buttons=document.createElement("div");buttons.className="buttons";
+  const type=document.createElement("div");type.className="type "+(p.type==="FedEx"?"fedex":"interinale");type.textContent=p.type;buttons.appendChild(type);
+  [["Presente","present","presente"],["Assente","absent","assente"]].forEach(x=>{const b=document.createElement("button");b.textContent=x[0];b.className=x[1]+(p.status===x[2]?" active":"");b.onclick=()=>setStatus(i,x[2]);buttons.appendChild(b)});
+  main.append(name,buttons);row.appendChild(main);
+  const details=document.createElement("div");details.className="details"+(openDetails[i]?" open":"");
+  details.innerHTML=`<div class="detail-grid"><div class="detail-item"><strong>Agenzia</strong>${escapeHtml(p.agency||"—")}</div><div class="detail-item"><strong>Area</strong>${escapeHtml(p.area||"—")}</div><div class="detail-item"><strong>Start Time</strong>${escapeHtml(p.start)}</div><div class="detail-item"><strong>End Time</strong>${escapeHtml(p.end)}</div></div>`;
+  row.appendChild(details);list.appendChild(row);
+ });
+}
+function firstLetter(value){
+ const s=String(value ?? "").trim();
+ if(!s) return "";
+ const normalized=s.normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+ const match=normalized.match(/[A-Za-z]/);
+ return match ? match[0].toUpperCase() : "";
+}
+
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+</script>
+</body>
+</html>
