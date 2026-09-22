@@ -18,7 +18,7 @@ header h1{order:2;margin:0;font-size:22px}
 .header-date input{padding:7px 8px;border:0;border-radius:7px;background:#fff;color:#1f2937}
 main{max-width:1050px;margin:18px auto;padding:0 12px}
 .toolbar,.counterbar{background:#fff;border-radius:12px;padding:15px;margin-bottom:14px;box-shadow:0 2px 8px #00000012}
-.toolbar-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.toolbar-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sync-status{font-size:12px;color:#6b7280}
 .date-row{justify-content:space-between}
 input[type=file]{max-width:100%}
 input[type=date]{padding:8px;border:1px solid #d1d5db;border-radius:7px}
@@ -85,8 +85,7 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
  </div>
 </header>
 <main>
-<section class="toolbar">
-</section>
+<section class="toolbar"><div class="toolbar-row"><span class="sync-status" id="syncStatus">Database: collegamento attivo</span></div></section>
 <section class="counterbar">
  <div class="counter fedex"><small>FEDEX PRESENTI</small><strong id="fedexCount">0</strong></div>
  <div class="counter interinale"><small>INTERINALI PRESENTI</small><strong id="interinaleCount">0</strong></div>
@@ -104,6 +103,10 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 let people=[],openDetails={},surnameFilter="ALL",nameFilter="ALL";
+const SUPABASE_URL="https://onxcpwqsupocoegqdsao.supabase.co";
+const SUPABASE_KEY="sb_publishable_rnU8r1juOz0WyeA4YyJz9g_iAaFkHZU";
+const SUPABASE_TABLE="presenze";
+let syncBusy=false;
 const fileInput=document.getElementById("excelFile"),dateInput=document.getElementById("attendanceDate"),list=document.getElementById("peopleList");
 dateInput.value=new Date().toISOString().slice(0,10);
 createLetterFilters();
@@ -111,12 +114,16 @@ fileInput.addEventListener("change",handleFile);
 dateInput.addEventListener("change",loadStatuses);
 document.getElementById("resetGeneral").addEventListener("click",resetGeneral);
 function storageKey(){return "presenze_v3_"+dateInput.value}
-function resetGeneral(){
+async function resetGeneral(){
  if(!people.length)return;
  if(!confirm("Vuoi azzerare tutte le presenze per la data selezionata?"))return;
- localStorage.removeItem(storageKey());
- people.forEach(p=>p.status="neutro");
- render();
+ try{
+   const res=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(dateInput.value)}`,{method:"DELETE"});
+   if(!res.ok) throw new Error(await res.text());
+   localStorage.removeItem(storageKey());
+   people.forEach(p=>p.status="neutro");
+   render();
+ }catch(err){console.error(err);alert("Errore nel reset delle presenze sul database.");}
 }
 
 function createLetterFilters(){
@@ -177,12 +184,57 @@ function formatTime(v){
  if(typeof v==="number"){const t=Math.round(v*1440);return String(Math.floor(t/60)%24).padStart(2,"0")+":"+String(t%60).padStart(2,"0")}
  return String(v);
 }
-function loadStatuses(){
- let saved={};try{saved=JSON.parse(localStorage.getItem(storageKey())||"{}")}catch(e){}
- people.forEach(p=>p.status=saved[p.id]||"neutro");render();
+async function loadStatuses(){
+ if(!people.length){render();return;}
+ people.forEach(p=>p.status="neutro");
+ try{
+   const res=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(dateInput.value)}&select=person_key,status`);
+   if(!res.ok) throw new Error(await res.text());
+   const rows=await res.json();
+   const byKey={};
+   rows.forEach(r=>{byKey[r.person_key]=r.status||"neutro"});
+   people.forEach(p=>p.status=byKey[p.id]||"neutro");
+   localStorage.setItem(storageKey(),JSON.stringify(byKey));
+ }catch(err){
+   console.error(err);
+   try{const saved=JSON.parse(localStorage.getItem(storageKey())||"{}");people.forEach(p=>p.status=saved[p.id]||"neutro");}catch(e){}
+   alert("Impossibile leggere le presenze dal database. Controlla le policy RLS di Supabase.");
+ }
+ render();
 }
-function save(){const d={};people.forEach(p=>d[p.id]=p.status);localStorage.setItem(storageKey(),JSON.stringify(d))}
-function setStatus(i,status){people[i].status=people[i].status===status?"neutro":status;save();render()}
+function saveLocal(){const d={};people.forEach(p=>d[p.id]=p.status);localStorage.setItem(storageKey(),JSON.stringify(d))}
+async function setStatus(i,status){
+ const p=people[i];
+ const previous=p.status;
+ const next=previous===status?"neutro":status;
+ p.status=next;
+ saveLocal();
+ render();
+ try{
+   if(next==="neutro") await deleteStatus(p.id);
+   else await upsertStatus(p.id,next);
+ }catch(err){
+   console.error(err);
+   p.status=previous;
+   saveLocal();
+   render();
+   alert("Errore nel salvataggio della presenza sul database.");
+ }
+}
+function supabaseFetch(path,options={}){
+ const headers=Object.assign({"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Content-Type":"application/json"},options.headers||{});
+ return fetch(SUPABASE_URL+"/rest/v1/"+SUPABASE_TABLE+path,Object.assign({},options,{headers}));
+}
+async function upsertStatus(personKey,status){
+ const date=dateInput.value;
+ const res=await supabaseFetch(`?on_conflict=attendance_date%2Cperson_key`,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({attendance_date:date,person_key:personKey,status,updated_at:new Date().toISOString()})});
+ if(!res.ok) throw new Error(await res.text());
+}
+async function deleteStatus(personKey){
+ const date=dateInput.value;
+ const res=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(date)}&person_key=eq.${encodeURIComponent(personKey)}`,{method:"DELETE"});
+ if(!res.ok) throw new Error(await res.text());
+}
 function toggleDetails(i){openDetails[i]=!openDetails[i];render()}
 function render(){
  list.innerHTML="";let fp=0,ip=0,pres=0;
