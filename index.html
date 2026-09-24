@@ -35,6 +35,20 @@ input[type=date]{padding:8px;border:1px solid #d1d5db;border-radius:7px}
 .mainrow{display:flex;align-items:center;gap:8px}
 .name{flex:1;font-weight:bold;font-size:16px;cursor:pointer}
 .name:hover{text-decoration:underline}
+.overtime{display:flex;align-items:center;gap:4px;margin-left:auto}
+.overtime-label{font-size:11px;color:#6b7280;font-weight:bold;margin-right:2px}
+.overtime button{width:30px;height:30px;padding:0;font-size:18px;line-height:1;background:#e5e7eb;color:#374151}
+.overtime input{width:58px;height:30px;text-align:center;border:1px solid #d1d5db;border-radius:6px;font-weight:bold;background:#fff}
+.side-panels{display:flex;flex-direction:column;gap:12px}
+.side-box{background:#fff;border-radius:12px;padding:14px;box-shadow:0 2px 8px #00000012;min-height:120px}
+.side-box h3{margin:0 0 10px;font-size:14px;text-transform:uppercase}
+.absent-box h3{color:#92400e}
+.overtime-box h3{color:#166534}
+.side-list{display:flex;flex-direction:column;gap:6px}
+.side-item{display:flex;justify-content:space-between;gap:8px;padding:7px 8px;background:#f9fafb;border-radius:7px;font-size:13px}
+.side-empty{color:#6b7280;font-size:13px;padding:8px 0}
+.content-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:start}
+@media(max-width:850px){.content-grid{grid-template-columns:1fr}.side-panels{order:-1}}
 .type{width:92px;text-align:center;padding:6px;border-radius:6px;font-size:11px;font-weight:bold}
 .type.fedex{background:#e0e7ff;color:#3730a3}
 .type.interinale{background:#fef3c7;color:#92400e}
@@ -101,7 +115,7 @@ button{border:0;border-radius:7px;padding:9px 11px;font-weight:bold;cursor:point
  <div class="letters" id="nameLetters"></div>
 </section>
 
-<section id="peopleList"></section>
+<div class="content-grid"><section id="peopleList"></section><aside class="side-panels"><div class="side-box absent-box"><h3>Assenti</h3><div id="absentList" class="side-list"></div></div><div class="side-box overtime-box"><h3>Straordinari</h3><div id="overtimeList" class="side-list"></div></div></aside></div>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
@@ -111,7 +125,7 @@ const SUPABASE_KEY="sb_publishable_rnU8r1juOz0WyeA4YyJz9g_iAaFkHZU";
 const SUPABASE_TABLE="presenze";
 const SUPABASE_PERSONNEL_TABLE="personale";
 let syncBusy=false;
-const fileInput=document.getElementById("excelFile"),dateInput=document.getElementById("attendanceDate"),list=document.getElementById("peopleList");
+const fileInput=document.getElementById("excelFile"),dateInput=document.getElementById("attendanceDate"),list=document.getElementById("peopleList"),absentList=document.getElementById("absentList"),overtimeList=document.getElementById("overtimeList");
 dateInput.value=new Date().toISOString().slice(0,10);
 createLetterFilters();
 fileInput.addEventListener("change",handleFile);
@@ -215,7 +229,7 @@ async function handleFile(e){
    }).filter(Boolean);
    if(!imported.length){throw new Error("Nessun nominativo trovato nel file.");}
    await replacePersonnel(imported);
-   people=imported.map(x=>({id:x.person_key,surname:x.cognome,name:x.nome,agency:x.agenzia,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro"}));
+   people=imported.map(x=>({id:x.person_key,surname:x.cognome,name:x.nome,agency:x.agenzia,type:x.type,area:x.area,start:x.start_time,end:x.end_time,status:"neutro",overtime:0}));
    surnameFilter=[]; nameFilter=[]; renderFilters();
    setSyncStatus("Database: personale aggiornato");
    await loadStatuses();
@@ -231,7 +245,7 @@ async function loadPersonnel(){
   const res=await supabasePersonnelFetch("?active=eq.true&select=person_key,cognome,nome,agenzia,type,area,start_time,end_time&order=cognome.asc,nome.asc");
   if(!res.ok) throw new Error(await res.text());
   const rows=await res.json();
-  people=rows.map(x=>({id:x.person_key,surname:x.cognome||"",name:x.nome||"",agency:x.agenzia||"",type:x.type||"Interinale",area:x.area||"",start:x.start_time||"—",end:x.end_time||"—",status:"neutro"}));
+  people=rows.map(x=>({id:x.person_key,surname:x.cognome||"",name:x.nome||"",agency:x.agenzia||"",type:x.type||"Interinale",area:x.area||"",start:x.start_time||"—",end:x.end_time||"—",status:"neutro",overtime:0}));
   setSyncStatus(people.length?`Database: ${people.length} persone caricate`:`Database: nessun personale caricato`);
   await loadStatuses();
  }catch(err){
@@ -268,21 +282,21 @@ async function loadStatuses(){
  if(!people.length){render();return;}
  people.forEach(p=>p.status="neutro");
  try{
-   const res=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(dateInput.value)}&select=person_key,status`);
+   const res=await supabaseFetch(`?attendance_date=eq.${encodeURIComponent(dateInput.value)}&select=person_key,status,overtime_hours`);
    if(!res.ok) throw new Error(await res.text());
    const rows=await res.json();
    const byKey={};
-   rows.forEach(r=>{byKey[r.person_key]=r.status||"neutro"});
-   people.forEach(p=>p.status=byKey[p.id]||"neutro");
+   rows.forEach(r=>{byKey[r.person_key]={status:r.status||"neutro",overtime:Number(r.overtime_hours)||0}});
+   people.forEach(p=>{const v=byKey[p.id]||{status:"neutro",overtime:0};p.status=v.status;p.overtime=v.overtime});
    localStorage.setItem(storageKey(),JSON.stringify(byKey));
  }catch(err){
    console.error(err);
-   try{const saved=JSON.parse(localStorage.getItem(storageKey())||"{}");people.forEach(p=>p.status=saved[p.id]||"neutro");}catch(e){}
+   try{const saved=JSON.parse(localStorage.getItem(storageKey())||"{}");people.forEach(p=>{const v=saved[p.id];if(v&&typeof v==="object"){p.status=v.status||"neutro";p.overtime=Number(v.overtime)||0}else{p.status=v||"neutro";p.overtime=0}});}catch(e){}
    alert("Impossibile leggere le presenze dal database. Controlla le policy RLS di Supabase.");
  }
  render();
 }
-function saveLocal(){const d={};people.forEach(p=>d[p.id]=p.status);localStorage.setItem(storageKey(),JSON.stringify(d))}
+function saveLocal(){const d={};people.forEach(p=>d[p.id]={status:p.status,overtime:Number(p.overtime)||0});localStorage.setItem(storageKey(),JSON.stringify(d))}
 async function setStatus(i,status){
  const p=people[i];
  const previous=p.status;
@@ -291,8 +305,8 @@ async function setStatus(i,status){
  saveLocal();
  render();
  try{
-   if(next==="neutro") await deleteStatus(p.id);
-   else await upsertStatus(p.id,next);
+   if(next==="neutro" && (Number(p.overtime)||0)===0) await deleteStatus(p.id);
+   else await upsertStatus(p.id,next,p.overtime);
    setSyncStatus("Database: presenza salvata");
  }catch(err){
    console.error(err);
@@ -306,10 +320,34 @@ function supabaseFetch(path,options={}){
  const headers=Object.assign({"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,"Content-Type":"application/json","Accept-Profile":"public","Content-Profile":"public"},options.headers||{});
  return fetch(SUPABASE_URL+"/rest/v1/"+SUPABASE_TABLE+path,Object.assign({},options,{headers}));
 }
-async function upsertStatus(personKey,status){
+async function upsertStatus(personKey,status,overtime=0){
  const date=dateInput.value;
- const res=await supabaseFetch(`?on_conflict=attendance_date%2Cperson_key`,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({attendance_date:date,person_key:personKey,status,updated_at:new Date().toISOString()})});
+ const res=await supabaseFetch(`?on_conflict=attendance_date%2Cperson_key`,{method:"POST",headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},body:JSON.stringify({attendance_date:date,person_key:personKey,status,overtime_hours:Number(overtime)||0,updated_at:new Date().toISOString()})});
  if(!res.ok) throw new Error(await res.text());
+}
+async function setOvertime(i,value){
+ const p=people[i];
+ const previous=Number(p.overtime)||0;
+ let next=Number(value);
+ if(!Number.isFinite(next)||next<0) next=0;
+ next=Math.round(next*2)/2;
+ p.overtime=next;
+ saveLocal();
+ render();
+ try{
+   await upsertStatus(p.id,p.status,next);
+   setSyncStatus("Database: straordinario salvato");
+ }catch(err){
+   console.error(err);
+   p.overtime=previous;
+   saveLocal();
+   render();
+   alert("Errore nel salvataggio dello straordinario sul database.\n\n"+err.message);
+ }
+}
+function changeOvertime(i,delta){
+ const current=Number(people[i].overtime)||0;
+ setOvertime(i,Math.max(0,current+delta));
 }
 async function deleteStatus(personKey){
  const date=dateInput.value;
@@ -323,6 +361,12 @@ function render(){
  document.getElementById("fedexCount").textContent=fp;
  document.getElementById("interinaleCount").textContent=ip;
  document.getElementById("presentiCount").textContent=pres;
+
+ const absentPeople=people.filter(p=>p.status==="assente");
+ const overtimePeople=people.filter(p=>(Number(p.overtime)||0)>0);
+ absentList.innerHTML=absentPeople.length?absentPeople.map(p=>`<div class="side-item"><span>${escapeHtml(p.surname+" "+p.name)}</span></div>`).join(""):"<div class=\"side-empty\">Nessun assente</div>";
+ overtimeList.innerHTML=overtimePeople.length?overtimePeople.map(p=>`<div class="side-item"><span>${escapeHtml(p.surname+" "+p.name)}</span><strong>${formatHours(p.overtime)} h</strong></div>`).join(""):"<div class=\"side-empty\">Nessuno straordinario</div>";
+
  if(!people.length){list.innerHTML="<div class=\"person\"><div style=\"text-align:center;padding:20px;color:#6b7280\">Nessun personale caricato. Usa ↑ Carica file.</div></div>";return;}
  const visiblePeople=people.map((p,i)=>({p,i})).filter(({p})=>{
   const surnameInitial=getInitial(p.surname);
@@ -339,11 +383,22 @@ function render(){
   const buttons=document.createElement("div");buttons.className="buttons";
   const type=document.createElement("div");type.className="type "+(p.type==="FedEx"?"fedex":"interinale");type.textContent=p.type;buttons.appendChild(type);
   [["Presente","present","presente"],["Assente","absent","assente"]].forEach(x=>{const b=document.createElement("button");b.textContent=x[0];b.className=x[1]+(p.status===x[2]?" active":"");b.onclick=()=>setStatus(i,x[2]);buttons.appendChild(b)});
+  const overtime=document.createElement("div");overtime.className="overtime";
+  overtime.innerHTML='<span class="overtime-label">OT</span><button type="button" title="Diminuisci di 0,5 h">−</button><input type="number" min="0" step="0.5" value="'+(Number(p.overtime)||0)+'" title="Ore di straordinario"><button type="button" title="Aumenta di 0,5 h">+</button>';
+  const otInput=overtime.querySelector("input");
+  overtime.querySelector("button:first-of-type").onclick=()=>changeOvertime(i,-0.5);
+  overtime.querySelector("button:last-of-type").onclick=()=>changeOvertime(i,0.5);
+  otInput.addEventListener("change",()=>setOvertime(i,otInput.value));
+  buttons.appendChild(overtime);
   main.append(name,buttons);row.appendChild(main);
   const details=document.createElement("div");details.className="details"+(openDetails[i]?" open":"");
   details.innerHTML=`<div class="detail-grid"><div class="detail-item"><strong>Agenzia</strong>${escapeHtml(p.agency||"—")}</div><div class="detail-item"><strong>Area</strong>${escapeHtml(p.area||"—")}</div><div class="detail-item"><strong>Start Time</strong>${escapeHtml(p.start)}</div><div class="detail-item"><strong>End Time</strong>${escapeHtml(p.end)}</div></div>`;
   row.appendChild(details);list.appendChild(row);
  });
+} 
+function formatHours(v){
+ const n=Number(v)||0;
+ return Number.isInteger(n)?String(n):n.toFixed(1).replace(".",",");
 }
 function getInitial(value){
  const s=String(value ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
